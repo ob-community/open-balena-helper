@@ -1,26 +1,32 @@
 {
-  "name": "open-balena-download",
-  "version": "1.0.0",
-  "description": "Openbalena Download Server",
+  "name": "open-balena-helper",
+  "version": "0.1.0",
+  "description": "ope-balena-api endpoint extensions server",
   "author": "David Caputo",
   "main": "dist/index.js",
   "scripts": {
-    "start": "node dist/index.js"
+    "start": "cross-env NODE_ENV=development node dist/index.js",
+    "build": "echo \"No build step defined\"",
+    "lint": "eslint .",
+    "lint-fix": "eslint --fix .",
+    "prettier": "prettier --write .",
+    "test": "jest"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.441.0",
-    "axios": "^1.6.0",
-    "express": "^4.17.2"
+    "@aws-sdk/client-s3": "^3.787.0",
+    "axios": "^1.8.4",
+    "express": "^5.1.0",
+    "pino": "^9.6.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.13",
-    "@typescript-eslint/eslint-plugin": "^5.36.1",
-    "@typescript-eslint/parser": "^5.36.1",
-    "eslint": "^8.23.0",
-    "eslint-config-airbnb-typescript": "^17.0.0",
-    "eslint-config-prettier": "^8.5.0",
-    "eslint-plugin-import": "^2.26.0",
-    "eslint-plugin-prettier": "^4.2.1",
-    "prettier": "^2.7.1"
+    "@eslint/js": "^9.24.0",
+    "@types/express": "^5.0.1",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.24.0",
+    "jest": "^29.7.0",
+    "pino-pretty": "^13.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.29.1"
   }
 }
