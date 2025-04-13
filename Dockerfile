@@ -7,6 +7,6 @@ WORKDIR /usr/src/app
 COPY . .
 
 RUN npm ci --no-fund --no-update-notifier && \
-    tsc
+    npx tsc
 
 CMD ["/bin/sh", "/usr/src/app/start.sh"]
