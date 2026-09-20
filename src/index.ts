@@ -5,7 +5,12 @@ import {
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import axios from 'axios';
+import {
+  getImageStorageCredentials,
+  type ImageStorageCredentials,
+} from './image-storage';
 import logger from './logger';
 import { rewriteSupervisorReleaseImageNames } from './supervisor-release';
 
@@ -24,20 +29,19 @@ interface ExpressRoute {
   path: string;
 }
 
-function createImageStorageClient(): S3Client {
+function createImageStorageClient(
+  credentials: ImageStorageCredentials
+): S3Client {
   const endpoint = process.env.IMAGE_STORAGE_ENDPOINT;
   if (!endpoint) {
     throw new Error('IMAGE_STORAGE_ENDPOINT must be provided');
   }
 
-  const accessKeyId = process.env.IMAGE_STORAGE_ACCESS_KEY!;
-  const secretAccessKey = process.env.IMAGE_STORAGE_SECRET_KEY!;
-
   const config: S3ClientConfig = {
     region: 'us-east-1',
     endpoint: `https://${endpoint}`,
     forcePathStyle: process.env.IMAGE_STORAGE_FORCE_PATH_STYLE === 'true',
-    credentials: { accessKeyId, secretAccessKey },
+    credentials,
   };
 
   return new S3Client(config);
@@ -100,17 +104,11 @@ function createHttpServer(listenPort: number) {
       if (!deviceTypeStr) throw new Error('deviceType param must be provided');
       if (!jwt) throw new Error('authorization header must be provided');
 
-      const accessKeyId = process.env.IMAGE_STORAGE_ACCESS_KEY;
-      const secretAccessKey = process.env.IMAGE_STORAGE_SECRET_KEY;
-      if ((accessKeyId == null) !== (secretAccessKey == null)) {
-        throw new Error(
-          'IMAGE_STORAGE_ACCESS_KEY and IMAGE_STORAGE_SECRET_KEY must be provided together'
-        );
-      }
+      const imageStorageCredentials = getImageStorageCredentials(process.env);
 
       let body: Readable | undefined;
       let contentLength: number | undefined;
-      if (accessKeyId == null) {
+      if (imageStorageCredentials == null) {
         const balenaCloudAPI =
           process.env.BALENA_CLOUD_API_URL ?? 'https://api.balena-cloud.com';
         const upstream = new URL('/download', balenaCloudAPI);
@@ -127,7 +125,7 @@ function createHttpServer(listenPort: number) {
         const bucket = process.env.IMAGE_STORAGE_BUCKET;
         if (!bucket) throw new Error('IMAGE_STORAGE_BUCKET must be provided');
         const key = imageObjectKey(deviceTypeStr, versionStr);
-        const client = createImageStorageClient();
+        const client = createImageStorageClient(imageStorageCredentials);
         const response = await client.send(
           new GetObjectCommand({ Bucket: bucket, Key: key })
         );
@@ -141,15 +139,22 @@ function createHttpServer(listenPort: number) {
         if (contentLength) {
           res.setHeader('Content-Length', contentLength);
         }
-        body.pipe(res).on('error', (err) => {
-          throw err;
-        });
+        await pipeline(body, res);
       } else {
         throw new Error('Invalid response from S3');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      res.status(400).send(errorMessage);
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error({ component, route, error }, 'Download failed');
+
+      if (res.headersSent || res.destroyed) {
+        if (!res.destroyed) {
+          res.destroy(error);
+        }
+        return;
+      }
+
+      res.status(400).send(error.message);
     }
   });
 
