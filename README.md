@@ -1,48 +1,87 @@
-# Helper for Open Balena
+# Helper for OpenBalena
 
-Open source helper for [openbalena](https://github.com/balena-io/open-balena), a platform to deploy and manage connected devices.
+`open-balena-helper` supplies API operations that are needed by an OpenBalena
+installation but are not implemented by `open-balena-api`.
 
-## Features
+## Routes
 
-The goal of this project is to implement endpoints that are not part of `open-balena-api` but which are helpful to piece together complete functionality of `open-balena`. For example, the `/v6/supervisor_release` endpoint, which returns the correct supervisor version for a given device based on its architecture and is necessary to allow devices to automatically update their supervisors using the `update-balena-supervisor` service included with balenaos, and the `/download` endpoint, which allows for OS downloads provided the OS was built using the `balena-yocto-scripts` infrastructure. This package will likely expand over time as new endpoints are added, updated or removed from the `open-balena-api` project.
+### `GET /download`
 
-## Compatibility
+Streams a BalenaOS image from the configured S3-compatible image origin. The
+request must include an authorization header and the `deviceType` and `version`
+query parameters expected by the Balena CLI.
 
-This project is compatible with `open-balena` and specifically relies on the `open-balena-api` and `open-balena-s3` components.
+The image source can be either:
 
-## Installation
+- Balena Cloud's `/download` endpoint; or
+- an authenticated private S3-compatible service such as OpenBalena MinIO.
 
-`open-balena-helper` is meant to be installed as part of `open-balena`, and ideally at the same time. For thoes running `open-balena` on k8s, we have included services to build it in the [open-balena helm project](https://github.com/dcaputo-harmoni/open-balena-helm). If you are running `open-balena` via docker-compose, you will need to modify the scripts to mirror the setup in the helm charts or recreate it using the configuration steps below.
+When image-storage credentials are omitted, the helper transparently forwards
+the request to Balena Cloud without forwarding the caller's authorization
+header. Balena Cloud reconstructs the image from its public chunked image store.
+When credentials are provided, the helper retains its original behavior and
+streams `image/balena.img` directly from the private bucket.
 
-To configure `open-balena-helper` you must define four environment variables and two volumes for the container:
+### `GET /v6/supervisor_release`
 
-Environment Variables:
+Forwards supervisor release queries to Balena Cloud. When a query identifies a
+device UUID, the helper first resolves that device's architecture and current
+supervisor version through the local `open-balena-api`, then translates the
+query for Balena Cloud.
 
-- **API_HOST**: `open-balena-api` hostmame, i.e. api.openbalena.<yourdomain.com>
-- **IMAGE_STORAGE_ENDPOINT**: `open-balena-s3` hostmame, i.e. s3.openbalena.<yourdomain.com>
-- **IMAGE_STORAGE_BUCKET**: The bucket name where OS images are stored, i.e. "image-data"
-- **IMAGE_STORAGE_PREFIX**: The prefix within the above noted bucket where OS images are stored, i.e. "images"
-- **IMAGE_STORAGE_ACCESS_KEY**: The access key for your `open-balena-s3` instance
-- **IMAGE_STORAGE_SECRET_KEY**: The secret key for your `open-balena-s3` instance
-- **IMAGE_STORAGE_FORCE_PATH_STYLE**: You probably want this set to "true"
+## Device-type metadata
 
-Proxy Configuration:
+This service intentionally does **not** proxy `/device-types/v1`.
+`open-balena-api` owns that route and also resolves the same device-type metadata
+internally when servicing `/download-config`. Proxying only the HTTP route would
+therefore make the public listing appear correct while config generation would
+still fail.
 
-You will also need to update your haproxy instance to redirect the following URLs (which would normally route to the `open-balena-api` container) to the `open-balena-helper` container:
+To defer to Balena Cloud without maintaining local JSON, configure
+`open-balena-api` to use Balena's public image bucket:
 
-- **api.openbalena.<yourdomain.com>/v6/supervisor_release**
-- **api.openbalena.<yourdomain.com>/download**
+```text
+IMAGE_STORAGE_ENDPOINT=s3.amazonaws.com
+IMAGE_STORAGE_BUCKET=resin-production-img-cloudformation
+IMAGE_STORAGE_PREFIX=images
+```
 
-Alternatively, if you are using the helm project noted above for deploying your openbalena instance, these redirects will be handled for you.
+`open-balena-api` applies its `CONTRACT_ALLOWLIST` while reading that origin, so
+`/device-types/v1`, image-version validation, and `/download-config` all expose
+only locally supported device types. Configure the helper with
+`BALENA_CLOUD_API_URL=https://api.balena-cloud.com` so `/download` delegates
+image assembly and streaming to Balena Cloud. Do not configure a separate
+allowlist on the helper.
+
+## Configuration
+
+- **API_HOST**: hostname of the local `open-balena-api`, for example
+  `api.openbalena.example.com`.
+- **BALENA_CLOUD_API_URL**: optional Balena Cloud API origin. Defaults to
+  `https://api.balena-cloud.com`.
+- **IMAGE_STORAGE_ENDPOINT**: private image-storage hostname.
+- **IMAGE_STORAGE_BUCKET**: private image-storage bucket.
+- **IMAGE_STORAGE_PREFIX**: private object prefix, normally `images`.
+- **IMAGE_STORAGE_ACCESS_KEY** and **IMAGE_STORAGE_SECRET_KEY**: optional, but
+  must either both be set or both be omitted. When omitted, `/download` is
+  proxied to `BALENA_CLOUD_API_URL`.
+- **IMAGE_STORAGE_FORCE_PATH_STYLE**: set to `true` for services such as MinIO;
+  omit or set to `false` for standard Amazon S3 virtual-hosted access.
+
+Route only `/download` and `/v6/supervisor_release` to this service. Route
+`/download-config`, `/device-types/v1`, and other API requests to
+`open-balena-api`.
 
 ## Usage
 
-Once installed, your devices should automatically take supervisor updates via the `update-balena-supervisor` service, and you should be able to download custom os builds using the `balena os download <your-device-type> -o ./os-image.img`
+Once installed, devices can discover supervisor updates and operators can
+download an image with:
 
-## Limitations and Known Issues
-
-- Likely many; needs more testing to cover off corner cases
+```sh
+balena os download <device-type> -o ./os-image.img
+```
 
 ## Credits
 
-- Credit to the Balena team for developing [open-balena-api](https://github.com/balena-io/open-balena-api) and [balena-cli](https://github.com/balena-io/balena-cli), which provide a versatile framework to manage fleets of connected devices
+Thanks to the Balena team for
+[OpenBalena](https://github.com/balena-io/open-balena) and the Balena CLI.

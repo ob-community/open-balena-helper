@@ -1,5 +1,9 @@
 import * as express from 'express';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  GetObjectCommand,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
 import { Readable } from 'node:stream';
 import axios from 'axios';
 import logger from './logger';
@@ -19,11 +23,39 @@ interface ExpressRoute {
   path: string;
 }
 
+function createImageStorageClient(): S3Client {
+  const endpoint = process.env.IMAGE_STORAGE_ENDPOINT;
+  if (!endpoint) {
+    throw new Error('IMAGE_STORAGE_ENDPOINT must be provided');
+  }
+
+  const accessKeyId = process.env.IMAGE_STORAGE_ACCESS_KEY!;
+  const secretAccessKey = process.env.IMAGE_STORAGE_SECRET_KEY!;
+
+  const config: S3ClientConfig = {
+    region: 'us-east-1',
+    endpoint: `https://${endpoint}`,
+    forcePathStyle: process.env.IMAGE_STORAGE_FORCE_PATH_STYLE === 'true',
+    credentials: { accessKeyId, secretAccessKey },
+  };
+
+  return new S3Client(config);
+}
+
+function imageObjectKey(deviceType: string, version: string): string {
+  const prefix = process.env.IMAGE_STORAGE_PREFIX;
+  if (!prefix) {
+    throw new Error('IMAGE_STORAGE_PREFIX must be provided');
+  }
+  return `${prefix}/${deviceType}/${version}/image/balena.img`;
+}
+
 function createHttpServer(listenPort: number) {
   const app = express();
 
   app.get('/download', async (req, res) => {
-    const route = (req.route as ExpressRoute | undefined)?.path ?? 'unknown route';
+    const route =
+      (req.route as ExpressRoute | undefined)?.path ?? 'unknown route';
 
     // balena-cli only provides deviceType and version
     // other options are offered by balena sdk but don't appear to be used anywhere
@@ -60,7 +92,6 @@ function createHttpServer(listenPort: number) {
           network,
           wifiKey,
           wifiSsid,
-          jwt,
         },
         'Got download request'
       );
@@ -68,26 +99,46 @@ function createHttpServer(listenPort: number) {
       if (!deviceTypeStr) throw new Error('deviceType param must be provided');
       if (!jwt) throw new Error('authorization header must be provided');
 
-      const client = new S3Client({
-        region: 'us-east-1',
-        credentials: {
-          accessKeyId: process.env.IMAGE_STORAGE_ACCESS_KEY ?? '',
-          secretAccessKey: process.env.IMAGE_STORAGE_SECRET_KEY ?? '',
-        },
-        endpoint: `https://${process.env.IMAGE_STORAGE_ENDPOINT}`,
-        forcePathStyle: process.env.IMAGE_STORAGE_FORCE_PATH_STYLE === 'true',
-      });
+      const accessKeyId = process.env.IMAGE_STORAGE_ACCESS_KEY;
+      const secretAccessKey = process.env.IMAGE_STORAGE_SECRET_KEY;
+      if ((accessKeyId == null) !== (secretAccessKey == null)) {
+        throw new Error(
+          'IMAGE_STORAGE_ACCESS_KEY and IMAGE_STORAGE_SECRET_KEY must be provided together'
+        );
+      }
 
-      const command = new GetObjectCommand({
-        Bucket: process.env.IMAGE_STORAGE_BUCKET,
-        Key: `${process.env.IMAGE_STORAGE_PREFIX}/${deviceTypeStr}/${versionStr}/image/balena.img`,
-      });
+      let body: Readable | undefined;
+      let contentLength: number | undefined;
+      if (accessKeyId == null) {
+        const balenaCloudAPI =
+          process.env.BALENA_CLOUD_API_URL ?? 'https://api.balena-cloud.com';
+        const upstream = new URL('/download', balenaCloudAPI);
+        const rawQuery = req.originalUrl.split('?', 2)[1];
+        if (rawQuery) {
+          upstream.search = rawQuery;
+        }
+        const response = await axios.get<Readable>(upstream.toString(), {
+          responseType: 'stream',
+        });
+        body = response.data;
+        res.setHeader('Content-Type', 'application/octet-stream');
+      } else {
+        const bucket = process.env.IMAGE_STORAGE_BUCKET;
+        if (!bucket) throw new Error('IMAGE_STORAGE_BUCKET must be provided');
+        const key = imageObjectKey(deviceTypeStr, versionStr);
+        const client = createImageStorageClient();
+        const response = await client.send(
+          new GetObjectCommand({ Bucket: bucket, Key: key })
+        );
+        if (response.Body instanceof Readable) {
+          body = response.Body;
+        }
+        contentLength = response.ContentLength;
+      }
 
-      const response = await client.send(command);
-      const body = response.Body;
       if (body instanceof Readable) {
-        if (response.ContentLength) {
-          res.setHeader('Content-Length', response.ContentLength);
+        if (contentLength) {
+          res.setHeader('Content-Length', contentLength);
         }
         body.pipe(res).on('error', (err) => {
           throw err;
@@ -102,7 +153,8 @@ function createHttpServer(listenPort: number) {
   });
 
   app.get('/v6/supervisor_release', async (req, res) => {
-    const route = (req.route as ExpressRoute | undefined)?.path ?? 'unknown route';
+    const route =
+      (req.route as ExpressRoute | undefined)?.path ?? 'unknown route';
     let rawQuery = /\?(.*)/.exec(req.originalUrl)?.[1];
     const $select: string =
       typeof req.query.$select === 'string' ? req.query.$select : '';
@@ -146,7 +198,8 @@ function createHttpServer(listenPort: number) {
         );
         arch = cpuArchRes.data.d?.[0]?.slug;
       } catch (error: unknown) {
-        const safeError = error instanceof Error ? error : new Error(String(error));
+        const safeError =
+          error instanceof Error ? error : new Error(String(error));
         logger.error(
           { component, route, error: safeError, uuid },
           'Error getting supervisor data'
@@ -163,7 +216,9 @@ function createHttpServer(listenPort: number) {
         'Got supervisor data'
       );
       if (ver && arch) {
-        const andSupervisorVersion = encodeURIComponent(`and supervisor_version eq 'v${ver}'`);
+        const andSupervisorVersion = encodeURIComponent(
+          `and supervisor_version eq 'v${ver}'`
+        );
         const slug = encodeURIComponent(`slug eq '${arch}'`);
         $filter = `is_for__device_type/any(ifdt:ifdt/is_of__cpu_architecture/any(ioca:ioca/${slug}))${andSupervisorVersion}`;
         rawQuery = `$top=1&$select=${$select}&$filter=${$filter}`;
@@ -202,10 +257,7 @@ function createHttpServer(listenPort: number) {
   });
 
   app.listen(listenPort, () => {
-    logger.info(
-      { component, port: listenPort },
-      'Listening on port'
-    );
+    logger.info({ component, port: listenPort }, 'Listening on port');
   });
 }
 
