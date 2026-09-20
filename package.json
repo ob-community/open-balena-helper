@@ -1,6 +1,6 @@
 {
   "name": "open-balena-helper",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "ope-balena-api endpoint extensions server",
   "author": "David Caputo",
   "main": "dist/index.js",
