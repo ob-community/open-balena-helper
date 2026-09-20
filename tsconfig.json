@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
-    "target": "es5",
-    "lib": ["es5", "es6"],
+    "module": "Node16",
+    "target": "es2022",
+    "lib": ["es2022"],
     "noImplicitAny": true,
     "noUnusedLocals": false,
     "noUnusedParameters": true,
@@ -10,8 +10,8 @@
     "removeComments": true,
     "sourceMap": true,
     "strictNullChecks": true,
-    "moduleResolution": "node",
-    "baseUrl": ".",
+    "moduleResolution": "Node16",
+    "esModuleInterop": true,
     "declaration": true,
     "rootDir": "src",
     "outDir": "./dist"
