@@ -1,4 +1,4 @@
-import * as express from 'express';
+import express from 'express';
 import {
   S3Client,
   GetObjectCommand,
@@ -7,6 +7,7 @@ import {
 import { Readable } from 'node:stream';
 import axios from 'axios';
 import logger from './logger';
+import { rewriteSupervisorReleaseImageNames } from './supervisor-release';
 
 const PORT = 80;
 const component = 'open-balena-helper';
@@ -240,7 +241,12 @@ function createHttpServer(listenPort: number) {
         },
         'Returning balena-cloud response'
       );
-      res.status(response.status).send(response.data);
+      const responseData = rewriteSupervisorReleaseImageNames(
+        response.data,
+        process.env.REGISTRY2_PROXY_REMOTE_URL,
+        process.env.REGISTRY2_PROXY_LOCAL_URL
+      );
+      res.status(response.status).send(responseData);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error(

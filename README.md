@@ -29,6 +29,12 @@ device UUID, the helper first resolves that device's architecture and current
 supervisor version through the local `open-balena-api`, then translates the
 query for Balena Cloud.
 
+When both `REGISTRY2_PROXY_REMOTE_URL` and `REGISTRY2_PROXY_LOCAL_URL` are set,
+the helper replaces the configured remote registry URL with the local registry
+URL in every returned `image_name`. This allows supervisor image pulls to stay
+inside an OpenBalena environment whose registry proxies Balena Cloud. If either
+setting is omitted or empty, the Balena Cloud response is returned unchanged.
+
 ## Device-type metadata
 
 This service intentionally does **not** proxy `/device-types/v1`.
@@ -67,6 +73,11 @@ allowlist on the helper.
   proxied to `BALENA_CLOUD_API_URL`.
 - **IMAGE_STORAGE_FORCE_PATH_STYLE**: set to `true` for services such as MinIO;
   omit or set to `false` for standard Amazon S3 virtual-hosted access.
+- **REGISTRY2_PROXY_REMOTE_URL** and **REGISTRY2_PROXY_LOCAL_URL**: optional
+  source and replacement strings for supervisor release `image_name` values.
+  Set both to route supervisor image pulls through a local registry proxy, for
+  example `registry2.balena-cloud.com` and
+  `registry2.openbalena.example.com`.
 
 Route only `/download` and `/v6/supervisor_release` to this service. Route
 `/download-config`, `/device-types/v1`, and other API requests to
