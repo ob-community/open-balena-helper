@@ -26,8 +26,13 @@ streams `image/balena.img` directly from the private bucket.
 
 Forwards supervisor release queries to Balena Cloud. When a query identifies a
 device UUID, the helper first resolves that device's architecture and current
-supervisor version through the local `open-balena-api`, then translates the
-query for Balena Cloud.
+Supervisor target through the local `open-balena-api`, then translates the
+query for Balena Cloud. The desired
+`should_be_managed_by__release.raw_version` takes precedence over the
+device-reported `supervisor_version`; the reported version is used only when no
+desired release is assigned. This preserves compatibility with older
+OpenBalena installations while allowing the standard desired-release
+relationship to initiate an update.
 
 When both `REGISTRY2_PROXY_REMOTE_URL` and `REGISTRY2_PROXY_LOCAL_URL` are set,
 the helper replaces the configured remote registry URL with the local registry
