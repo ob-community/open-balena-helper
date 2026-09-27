@@ -13,12 +13,16 @@ import {
 } from './image-storage';
 import logger from './logger';
 import { rewriteSupervisorReleaseImageNames } from './supervisor-release';
+import {
+  getSupervisorTargetVersion,
+  type SupervisorTargetDevice,
+} from './supervisor-target';
 
 const PORT = 80;
 const component = 'open-balena-helper';
 
 interface SupervisorResponse {
-  d: { supervisor_version: string }[];
+  d: SupervisorTargetDevice[];
 }
 
 interface CPUArchResponse {
@@ -185,14 +189,14 @@ function createHttpServer(listenPort: number) {
       try {
         const subFilter = encodeURIComponent(`uuid eq '${uuid}'`);
         const supervisorRes = await axios.get<SupervisorResponse>(
-          `https://${apiHost}/v6/device?$select=supervisor_version&$filter=${subFilter}`,
+          `https://${apiHost}/v6/device?$select=supervisor_version&$expand=should_be_managed_by__release($select=raw_version)&$filter=${subFilter}`,
           {
             headers: {
               Authorization: `Bearer ${jwt}`,
             },
           }
         );
-        ver = supervisorRes.data.d?.[0]?.supervisor_version;
+        ver = getSupervisorTargetVersion(supervisorRes.data.d?.[0]);
 
         const cpuArchRes = await axios.get<CPUArchResponse>(
           `https://${apiHost}/v6/cpu_architecture?$select=slug&$filter=is_supported_by__device_type/any(dt:dt/describes__device/any(d:d/${subFilter}))`,
