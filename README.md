@@ -32,7 +32,13 @@ query for Balena Cloud. The desired
 device-reported `supervisor_version`; the reported version is used only when no
 desired release is assigned. This preserves compatibility with older
 OpenBalena installations while allowing the standard desired-release
-relationship to initiate an update.
+relationship to initiate an update. The helper resolves the desired release
+through its inverse `should_manage__device` relationship, matching the
+relationship used by Supervisor clients. It queries the local canonical v7
+`release` resource because some v6 open-balena-api translations fail when
+filtering the translated `release` resource by that existing relationship. If
+v7 is unavailable, the helper falls back to the legacy v6 reported-version
+query.
 
 When both `REGISTRY2_PROXY_REMOTE_URL` and `REGISTRY2_PROXY_LOCAL_URL` are set,
 the helper replaces the configured remote registry URL with the local registry
