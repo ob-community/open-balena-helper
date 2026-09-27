@@ -14,6 +14,8 @@ import {
 import logger from './logger';
 import { rewriteSupervisorReleaseImageNames } from './supervisor-release';
 import {
+  getLegacySupervisorVersionUrl,
+  getSupervisorTargetUrl,
   getSupervisorTargetVersion,
   type SupervisorTargetDevice,
 } from './supervisor-target';
@@ -188,14 +190,32 @@ function createHttpServer(listenPort: number) {
       let arch: string | undefined;
       try {
         const subFilter = encodeURIComponent(`uuid eq '${uuid}'`);
-        const supervisorRes = await axios.get<SupervisorResponse>(
-          `https://${apiHost}/v6/device?$select=supervisor_version&$expand=should_be_managed_by__release($select=raw_version)&$filter=${subFilter}`,
-          {
-            headers: {
-              Authorization: `Bearer ${jwt}`,
-            },
+        let supervisorRes;
+        try {
+          supervisorRes = await axios.get<SupervisorResponse>(
+            getSupervisorTargetUrl(apiHost ?? '', subFilter),
+            {
+              headers: {
+                Authorization: `Bearer ${jwt}`,
+              },
+            }
+          );
+        } catch (error: unknown) {
+          const status = axios.isAxiosError(error)
+            ? error.response?.status
+            : undefined;
+          if (status !== 400 && status !== 404) {
+            throw error;
           }
-        );
+          supervisorRes = await axios.get<SupervisorResponse>(
+            getLegacySupervisorVersionUrl(apiHost ?? '', subFilter),
+            {
+              headers: {
+                Authorization: `Bearer ${jwt}`,
+              },
+            }
+          );
+        }
         ver = getSupervisorTargetVersion(supervisorRes.data.d?.[0]);
 
         const cpuArchRes = await axios.get<CPUArchResponse>(
@@ -214,6 +234,11 @@ function createHttpServer(listenPort: number) {
           { component, route, error: safeError, uuid },
           'Error getting supervisor data'
         );
+        res.status(502).json({
+          success: false,
+          message: 'Unable to resolve the local Supervisor target',
+        });
+        return;
       }
       logger.debug(
         {
@@ -232,6 +257,12 @@ function createHttpServer(listenPort: number) {
         const slug = encodeURIComponent(`slug eq '${arch}'`);
         $filter = `is_for__device_type/any(ifdt:ifdt/is_of__cpu_architecture/any(ioca:ioca/${slug}))${andSupervisorVersion}`;
         rawQuery = `$top=1&$select=${$select}&$filter=${$filter}`;
+      } else {
+        res.status(404).json({
+          success: false,
+          message: 'No local Supervisor target found for this device',
+        });
+        return;
       }
     }
     logger.debug(
