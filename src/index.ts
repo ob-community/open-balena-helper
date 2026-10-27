@@ -12,6 +12,7 @@ import {
   type ImageStorageCredentials,
 } from './image-storage';
 import logger from './logger';
+import { installGracefulShutdown } from './shutdown';
 import { rewriteSupervisorReleaseImageNames } from './supervisor-release';
 import {
   getLegacySupervisorVersionUrl,
@@ -302,9 +303,9 @@ function createHttpServer(listenPort: number) {
     }
   });
 
-  app.listen(listenPort, () => {
+  return app.listen(listenPort, () => {
     logger.info({ component, port: listenPort }, 'Listening on port');
   });
 }
 
-createHttpServer(PORT);
+installGracefulShutdown(createHttpServer(PORT));
