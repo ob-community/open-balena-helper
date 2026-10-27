@@ -9,4 +9,4 @@ COPY . .
 RUN npm ci --no-fund --no-update-notifier && \
     npx tsc
 
-CMD ["/bin/sh", "/usr/src/app/start.sh"]
+CMD ["node", "dist/index.js"]
